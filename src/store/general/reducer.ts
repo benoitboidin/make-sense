@@ -46,9 +46,17 @@ const initialState: GeneralState = {
         {
             id: "undo-last-point",
             name: "Undo Last Point",
-            keyCombo: ["Control", "z"],
-            defaultKeyCombo: ["Control", "z"],
-            description: "Removes the last added point in polygon creation",
+            keyCombo: PlatformUtil.isMac() ? ["Meta", "z"] : ["Control", "z"],
+            defaultKeyCombo: PlatformUtil.isMac() ? ["Meta", "z"] : ["Control", "z"],
+            description: "Undoes last annotation operation or removes last added polygon point",
+        },
+        {
+            id: "redo",
+            name: "Redo",
+            // Shift+Z produces "Z" (uppercase) in event.key, so uppercase is required here
+            keyCombo: PlatformUtil.isMac() ? ["Meta", "Shift", "Z"] : ["Control", "Shift", "Z"],
+            defaultKeyCombo: PlatformUtil.isMac() ? ["Meta", "Shift", "Z"] : ["Control", "Shift", "Z"],
+            description: "Redoes last undone annotation operation",
         },
         {
             id: "toggle-labels-visibility",

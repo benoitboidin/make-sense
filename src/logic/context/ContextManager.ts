@@ -7,6 +7,7 @@ import {EditorContext} from "./EditorContext";
 import {PopupContext} from "./PopupContext";
 import {GeneralSelector} from "../../store/selectors/GeneralSelector";
 import {EventType} from "../../data/enums/EventType";
+import {EditorModel} from "../../staticModels/EditorModel";
 
 export class ContextManager {
     private static activeCombo: string[] = [];
@@ -21,6 +22,7 @@ export class ContextManager {
         window.addEventListener(EventType.KEY_DOWN, ContextManager.onDown);
         window.addEventListener(EventType.KEY_UP, ContextManager.onUp);
         window.addEventListener(EventType.FOCUS, ContextManager.onFocus);
+        window.addEventListener(EventType.MOUSE_DOWN, ContextManager.onMouseDown);
     }
 
     public static switchCtx(context: ContextType): void {
@@ -65,6 +67,14 @@ export class ContextManager {
 
     public static onFocus() {
         ContextManager.activeCombo = [];
+    }
+
+    private static onMouseDown(event: MouseEvent): void {
+        if (EditorModel.editor && EditorModel.editor.contains(event.target as Node)) {
+            EditorModel.isEditorFocused = true;
+        } else {
+            EditorModel.isEditorFocused = false;
+        }
     }
 
     private static execute(event: KeyboardEvent): void {

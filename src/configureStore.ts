@@ -1,10 +1,12 @@
-import { createStore } from 'redux';
+import { createStore, applyMiddleware, compose } from 'redux';
 import { rootReducer } from './store';
+import { annotationHistoryMiddleware } from './store/middleware/annotationHistoryMiddleware';
 
 export default function configureStore() {
+    const composeEnhancers =
+        (typeof window !== 'undefined' && (window as any).__REDUX_DEVTOOLS_EXTENSION_COMPOSE__) || compose;
     return createStore(
         rootReducer,
-        // @ts-ignore
-        window.__REDUX_DEVTOOLS_EXTENSION__ && window.__REDUX_DEVTOOLS_EXTENSION__()
+        composeEnhancers(applyMiddleware(annotationHistoryMiddleware))
     );
 }

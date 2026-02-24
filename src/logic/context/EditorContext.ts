@@ -14,6 +14,15 @@ import { LineRenderEngine } from "../render/LineRenderEngine";
 import { LabelsSelector } from "../../store/selectors/LabelsSelector"; 
 import { store } from '../../index';
 import { ShortcutItem } from '../../store/general/types';
+import { AnnotationHistoryManager } from "../history/AnnotationHistoryManager";
+
+function isEditableTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    const tagName = target.tagName.toLowerCase();
+    if (['input', 'textarea', 'select'].includes(tagName)) return true;
+    if ((target as HTMLElement).isContentEditable) return true;
+    return false;
+}
 
 export class EditorContext extends BaseContext {
     private static getShortcutByName(name: string): ShortcutItem | undefined {
@@ -52,9 +61,32 @@ export class EditorContext extends BaseContext {
                 EditorActions.fullRender();
             },
             'Undo Last Point': (event: KeyboardEvent) => {
-                if (EditorModel.supportRenderingEngine &&
-                    EditorModel.supportRenderingEngine.labelType === LabelType.POLYGON) {
+                if (isEditableTarget(event.target)) return;
+                if (!EditorModel.isEditorFocused) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const isPolygonInCreation =
+                    EditorModel.supportRenderingEngine &&
+                    EditorModel.supportRenderingEngine.labelType === LabelType.POLYGON &&
+                    (EditorModel.supportRenderingEngine as PolygonRenderEngine).isInProgress();
+                if (isPolygonInCreation) {
                     (EditorModel.supportRenderingEngine as PolygonRenderEngine).undoLastAddedPoint();
+                } else {
+                    const imageData = LabelsSelector.getActiveImageData();
+                    if (imageData) {
+                        AnnotationHistoryManager.applyUndo(imageData.id);
+                    }
+                }
+                EditorActions.fullRender();
+            },
+            'Redo': (event: KeyboardEvent) => {
+                if (isEditableTarget(event.target)) return;
+                if (!EditorModel.isEditorFocused) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const imageData = LabelsSelector.getActiveImageData();
+                if (imageData) {
+                    AnnotationHistoryManager.applyRedo(imageData.id);
                 }
                 EditorActions.fullRender();
             },
@@ -128,6 +160,16 @@ export class EditorContext extends BaseContext {
                 LabelActions.toggleMeasurementLabelVisibility();
             }
         });
+
+        // Register Ctrl+Y as an additional redo shortcut on non-Mac platforms.
+        // Registered directly (not via Redux shortcuts) to avoid showing a duplicate
+        // entry in the shortcuts editor UI.
+        if (!PlatformUtil.isMac() && actionHandlers['Redo']) {
+            actions.push({
+                keyCombo: ["Control", "y"],
+                action: actionHandlers['Redo']
+            });
+        }
         
         // Update the static actions array
         EditorContext.actions = actions;
