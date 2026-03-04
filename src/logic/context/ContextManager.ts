@@ -7,11 +7,15 @@ import {EditorContext} from "./EditorContext";
 import {PopupContext} from "./PopupContext";
 import {GeneralSelector} from "../../store/selectors/GeneralSelector";
 import {EventType} from "../../data/enums/EventType";
+import {EditorModel} from "../../staticModels/EditorModel";
 
 export class ContextManager {
     private static activeCombo: string[] = [];
     private static actions: HotKeyAction[] = [];
     private static contextHistory: ContextType[] = [];
+    // Keys that, when released on macOS, may have their keyup events swallowed
+    // for non-modifier keys held alongside them.
+    private static readonly COMBO_MODIFIER_KEYS = new Set(['Meta', 'Control', 'Alt', 'AltGraph']);
 
     public static getActiveCombo(): string[] {
         return ContextManager.activeCombo;
@@ -21,6 +25,7 @@ export class ContextManager {
         window.addEventListener(EventType.KEY_DOWN, ContextManager.onDown);
         window.addEventListener(EventType.KEY_UP, ContextManager.onUp);
         window.addEventListener(EventType.FOCUS, ContextManager.onFocus);
+        window.addEventListener(EventType.MOUSE_DOWN, ContextManager.onMouseDown);
     }
 
     public static switchCtx(context: ContextType): void {
@@ -61,10 +66,28 @@ export class ContextManager {
     private static onUp(event: KeyboardEvent): void {
         const keyCode: string = ContextManager.getKeyCodeFromEvent(event);
         ContextManager.removeFromCombo(keyCode);
+        // On macOS (and some other platforms) the browser swallows keyup events
+        // for non-modifier keys while a primary modifier (Meta/Ctrl) is held.
+        // This leaves those keys "stuck" in the combo. Clearing non-modifier
+        // entries when a primary modifier is released prevents spurious matches
+        // on the next keydown of that modifier alone.
+        if (ContextManager.COMBO_MODIFIER_KEYS.has(keyCode)) {
+            ContextManager.activeCombo = ContextManager.activeCombo.filter(
+                k => ContextManager.COMBO_MODIFIER_KEYS.has(k) || k === 'Shift'
+            );
+        }
     }
 
     public static onFocus() {
         ContextManager.activeCombo = [];
+    }
+
+    private static onMouseDown(event: MouseEvent): void {
+        if (EditorModel.editor && EditorModel.editor.contains(event.target as Node)) {
+            EditorModel.isEditorFocused = true;
+        } else {
+            EditorModel.isEditorFocused = false;
+        }
     }
 
     private static execute(event: KeyboardEvent): void {

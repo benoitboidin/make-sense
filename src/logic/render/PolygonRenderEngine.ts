@@ -126,6 +126,8 @@ export class PolygonRenderEngine extends BaseRenderEngine {
     // =================================================================================================================
 
     private activePath: IPoint[] = [];
+    // Redo stack for undone in-progress vertices (cleared when a new vertex is added)
+    private undoPath: IPoint[] = [];
     private resizeAnchorIndex: number = null;
     private suggestedAnchorPositionOnCanvas: IPoint = null;
     private suggestedAnchorIndexInPolygon: number = null;
@@ -221,13 +223,16 @@ export class PolygonRenderEngine extends BaseRenderEngine {
         newVertices: IPoint[]
     ): void {
         const imageData: ImageData = LabelsSelector.getActiveImageData();
-        imageData.labelPolygons = imageData.labelPolygons.map((polygon) => {
-            if (polygon.id === polygonId) {
-                return { ...polygon, vertices: newVertices };
-            }
-            return polygon;
-        });
-        store.dispatch(updateImageDataById(imageData.id, imageData));
+        const newImageData: ImageData = {
+            ...imageData,
+            labelPolygons: imageData.labelPolygons.map((polygon) => {
+                if (polygon.id === polygonId) {
+                    return { ...polygon, vertices: newVertices };
+                }
+                return polygon;
+            }),
+        };
+        store.dispatch(updateImageDataById(imageData.id, newImageData));
     }
 
     public update(data: EditorData): void {
@@ -420,7 +425,10 @@ export class PolygonRenderEngine extends BaseRenderEngine {
 
     private removeLastPoint(): void {
         if (this.isCreationInProgress() && this.activePath.length > 0) {
-            this.activePath.pop();
+            const removed = this.activePath.pop();
+            if (removed !== undefined) {
+                this.undoPath.push(removed);
+            }
             if (this.isLassoDrawing) {
                 this.lastLassoPoint =
                     this.activePath.length > 0
@@ -433,6 +441,16 @@ export class PolygonRenderEngine extends BaseRenderEngine {
     public undoLastAddedPoint(): void {
         if (this.isCreationInProgress()) {
             this.removeLastPoint();
+            EditorActions.fullRender();
+        }
+    }
+
+    public redoLastRemovedPoint(): void {
+        if (this.isCreationInProgress() && this.undoPath.length > 0) {
+            const point = this.undoPath.pop();
+            if (point !== undefined) {
+                this.activePath.push(point);
+            }
             EditorActions.fullRender();
         }
     }
@@ -858,6 +876,7 @@ export class PolygonRenderEngine extends BaseRenderEngine {
                 data.viewPortContentImageRect
             );
             this.activePath.push(mousePositionSnapped);
+            this.undoPath = [];
         } else {
             const isMouseOverImage: boolean = RectUtil.isPointInside(
                 data.viewPortContentImageRect,
@@ -866,6 +885,7 @@ export class PolygonRenderEngine extends BaseRenderEngine {
             if (isMouseOverImage) {
                 EditorActions.setViewPortActionsDisabledStatus(true);
                 this.activePath.push(data.mousePositionOnViewPortContent);
+                this.undoPath = [];
                 store.dispatch(updateActiveLabelId(null));
                 this.applyPreferredCreationMode();
             }
@@ -1137,12 +1157,14 @@ export class PolygonRenderEngine extends BaseRenderEngine {
 
     public cancelLabelCreation() {
         this.activePath = [];
+        this.undoPath = [];
         EditorActions.setViewPortActionsDisabledStatus(false);
         this.stopLassoDrawingMode();
     }
 
     private finishLabelCreation() {
         this.activePath = [];
+        this.undoPath = [];
         EditorActions.setViewPortActionsDisabledStatus(false);
         this.stopLassoDrawingMode();
     }
@@ -1251,8 +1273,11 @@ export class PolygonRenderEngine extends BaseRenderEngine {
             activeLabelId,
             polygon
         );
-        imageData.labelPolygons.push(labelPolygon);
-        store.dispatch(updateImageDataById(imageData.id, imageData));
+        const newImageData: ImageData = {
+            ...imageData,
+            labelPolygons: [...imageData.labelPolygons, labelPolygon],
+        };
+        store.dispatch(updateImageDataById(imageData.id, newImageData));
         store.dispatch(updateFirstLabelCreatedFlag(true));
         store.dispatch(updateActiveLabelId(labelPolygon.id));
     }
@@ -1294,12 +1319,14 @@ export class PolygonRenderEngine extends BaseRenderEngine {
                             adjacentLabelId,
                             polygons[1]
                         );
-                    imageData.labelPolygons.push(labelPolygon0);
-                    imageData.labelPolygons.push(labelPolygon1);
+                    const newImageData: ImageData = {
+                        ...imageData,
+                        labelPolygons: [...imageData.labelPolygons, labelPolygon0, labelPolygon1],
+                    };
+                    store.dispatch(updateImageDataById(imageData.id, newImageData));
+                    store.dispatch(updateFirstLabelCreatedFlag(true));
+                    store.dispatch(updateActiveLabelId(labelPolygon0.id));
                 }
-                store.dispatch(updateImageDataById(imageData.id, imageData));
-                store.dispatch(updateFirstLabelCreatedFlag(true));
-                store.dispatch(updateActiveLabelId(labelPolygon0.id));
             }
         }
     }
@@ -1340,13 +1367,14 @@ export class PolygonRenderEngine extends BaseRenderEngine {
                         LabelUtil.createLabelPolygon(nextLabelId1, polygons[1]);
                     const labelPolygon2: LabelPolygon =
                         LabelUtil.createLabelPolygon(nextLabelId2, polygons[2]);
-                    imageData.labelPolygons.push(labelPolygon0);
-                    imageData.labelPolygons.push(labelPolygon1);
-                    imageData.labelPolygons.push(labelPolygon2);
+                    const newImageData: ImageData = {
+                        ...imageData,
+                        labelPolygons: [...imageData.labelPolygons, labelPolygon0, labelPolygon1, labelPolygon2],
+                    };
+                    store.dispatch(updateImageDataById(imageData.id, newImageData));
+                    store.dispatch(updateFirstLabelCreatedFlag(true));
+                    store.dispatch(updateActiveLabelId(labelPolygon0.id));
                 }
-                store.dispatch(updateImageDataById(imageData.id, imageData));
-                store.dispatch(updateFirstLabelCreatedFlag(true));
-                store.dispatch(updateActiveLabelId(labelPolygon0.id));
             }
         }
     }
@@ -1417,6 +1445,7 @@ export class PolygonRenderEngine extends BaseRenderEngine {
     private pasteAnnotations() {
         const imageData: ImageData = LabelsSelector.getActiveImageData();
         if (this.annotationsInMemory.length > 0) {
+            let newLabelPolygons = imageData.labelPolygons;
             for (let i = 0; i < this.annotationsInMemory.length; i++) {
                 const currentLabelPolygon = this.annotationsInMemory[i];
                 const currPolygon = currentLabelPolygon.vertices;
@@ -1425,13 +1454,16 @@ export class PolygonRenderEngine extends BaseRenderEngine {
                     labelId,
                     currPolygon
                 );
-                imageData.labelPolygons = this.removePolygonsInImageWithLabelId(
-                    imageData,
-                    labelId
-                );
-                imageData.labelPolygons.push(labelPolygonWithNewId);
+                newLabelPolygons = [
+                    ...newLabelPolygons.filter((p) => p.labelId !== labelId),
+                    labelPolygonWithNewId,
+                ];
             }
-            store.dispatch(updateImageDataById(imageData.id, imageData));
+            const newImageData: ImageData = {
+                ...imageData,
+                labelPolygons: newLabelPolygons,
+            };
+            store.dispatch(updateImageDataById(imageData.id, newImageData));
             this.annotationsInMemory = [];
         }
     }
@@ -1469,35 +1501,38 @@ export class PolygonRenderEngine extends BaseRenderEngine {
         const imageData: ImageData = LabelsSelector.getActiveImageData();
         const activeLabel: LabelPolygon =
             LabelsSelector.getActivePolygonLabel();
-        imageData.labelPolygons = imageData.labelPolygons.map(
-            (polygon: LabelPolygon) => {
-                if (polygon.id !== activeLabel.id) {
-                    return polygon;
-                } else {
-                    return {
-                        ...polygon,
-                        vertices: polygon.vertices.map(
-                            (value: IPoint, index: number) => {
-                                if (index !== this.resizeAnchorIndex) {
-                                    return value;
-                                } else {
-                                    const snappedMousePosition: IPoint =
-                                        RectUtil.snapPointToRect(
-                                            data.mousePositionOnViewPortContent,
-                                            data.viewPortContentImageRect
+        const newImageData: ImageData = {
+            ...imageData,
+            labelPolygons: imageData.labelPolygons.map(
+                (polygon: LabelPolygon) => {
+                    if (polygon.id !== activeLabel.id) {
+                        return polygon;
+                    } else {
+                        return {
+                            ...polygon,
+                            vertices: polygon.vertices.map(
+                                (value: IPoint, index: number) => {
+                                    if (index !== this.resizeAnchorIndex) {
+                                        return value;
+                                    } else {
+                                        const snappedMousePosition: IPoint =
+                                            RectUtil.snapPointToRect(
+                                                data.mousePositionOnViewPortContent,
+                                                data.viewPortContentImageRect
+                                            );
+                                        return RenderEngineUtil.transferPointFromViewPortContentToImage(
+                                            snappedMousePosition,
+                                            data
                                         );
-                                    return RenderEngineUtil.transferPointFromViewPortContentToImage(
-                                        snappedMousePosition,
-                                        data
-                                    );
+                                    }
                                 }
-                            }
-                        ),
-                    };
+                            ),
+                        };
+                    }
                 }
-            }
-        );
-        store.dispatch(updateImageDataById(imageData.id, imageData));
+            ),
+        };
+        store.dispatch(updateImageDataById(imageData.id, newImageData));
         store.dispatch(updateActiveLabelId(activeLabel.id));
     }
 
