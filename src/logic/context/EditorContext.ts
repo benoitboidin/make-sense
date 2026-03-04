@@ -84,9 +84,17 @@ export class EditorContext extends BaseContext {
                 if (!EditorModel.isEditorFocused) return;
                 event.preventDefault();
                 event.stopPropagation();
-                const imageData = LabelsSelector.getActiveImageData();
-                if (imageData) {
-                    AnnotationHistoryManager.applyRedo(imageData.id);
+                const isPolygonInCreation =
+                    EditorModel.supportRenderingEngine &&
+                    EditorModel.supportRenderingEngine.labelType === LabelType.POLYGON &&
+                    (EditorModel.supportRenderingEngine as PolygonRenderEngine).isInProgress();
+                if (isPolygonInCreation) {
+                    (EditorModel.supportRenderingEngine as PolygonRenderEngine).redoLastRemovedPoint();
+                } else {
+                    const imageData = LabelsSelector.getActiveImageData();
+                    if (imageData) {
+                        AnnotationHistoryManager.applyRedo(imageData.id);
+                    }
                 }
                 EditorActions.fullRender();
             },
